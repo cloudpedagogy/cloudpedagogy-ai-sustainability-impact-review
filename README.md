@@ -71,4 +71,6 @@ To deploy to AWS S3:
 > This application is provided for educational, experimental, and illustrative purposes only. It does not constitute legal, professional, technical, environmental, or institutional advice. Users remain responsible for interpreting outputs and making final decisions.
 
 ## Licence
-This project is part of the CloudPedagogy Governance Engineering ecosystem. All rights reserved.
+This project is released under the MIT Licence.
+
+Part of the CloudPedagogy Governance Engineering ecosystem.
