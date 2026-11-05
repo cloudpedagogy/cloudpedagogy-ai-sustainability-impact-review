@@ -96,29 +96,61 @@ describe('useReviewStore — Actions & Multi-Assessment Management', () => {
     expect(state.savedAssessments[secondId].methodologyVersion).toBe('cp-sustainability-methodology-v2');
   });
 
-  it('allows upgrading assessment methodology from v1 to v2 without erasing scores', () => {
+  it('creates a new v2 reassessment preserving historical v1 record completely and resetting decision provenance', () => {
     const store = useReviewStore.getState();
-    store.updateSystemOverview('systemName', 'Legacy Evaluation');
-    store.updateAssessment('technical', 'tech_maintainability', 2, 'Maintained');
+    store.updateSystemOverview('systemName', 'Historical Evaluation');
+    store.updateAssessment('technical', 'tech_maintainability', 2, 'Maintained under v1');
+    store.updateDecision('Proceed with Conditions', 'Original conditional approval under 34 questions');
 
     // Simulate assessment initialized in v1
-    const activeId = store.activeAssessmentId;
+    const v1Id = store.activeAssessmentId;
     useReviewStore.setState((prev) => ({
       savedAssessments: {
         ...prev.savedAssessments,
-        [activeId]: {
-          ...prev.savedAssessments[activeId],
+        [v1Id]: {
+          ...prev.savedAssessments[v1Id],
           methodologyVersion: 'cp-sustainability-methodology-v1',
         },
       },
     }));
 
-    expect(useReviewStore.getState().savedAssessments[activeId].methodologyVersion).toBe('cp-sustainability-methodology-v1');
+    expect(useReviewStore.getState().savedAssessments[v1Id].methodologyVersion).toBe('cp-sustainability-methodology-v1');
 
-    store.upgradeAssessmentMethodology(activeId);
-    const updated = useReviewStore.getState().savedAssessments[activeId];
-    expect(updated.methodologyVersion).toBe('cp-sustainability-methodology-v2');
-    expect(updated.assessments.technical.tech_maintainability.score).toBe(2);
+    const v2Id = store.upgradeAssessmentMethodology(v1Id);
+    expect(v2Id).toBeDefined();
+    expect(v2Id).not.toBe(v1Id);
+
+    const state = useReviewStore.getState();
+
+    // 1. Original v1 assessment must remain preserved completely
+    const v1Record = state.savedAssessments[v1Id];
+    expect(v1Record).toBeDefined();
+    expect(v1Record.methodologyVersion).toBe('cp-sustainability-methodology-v1');
+    expect(v1Record.name).toBe('Historical Evaluation');
+    expect(v1Record.decisionRecommendation).toBe('Proceed with Conditions');
+    expect(v1Record.decisionRationale).toBe('Original conditional approval under 34 questions');
+    expect(v1Record.assessments.technical.tech_maintainability.score).toBe(2);
+
+    // 2. New v2 assessment must be active and linked via sourceAssessmentId
+    expect(state.activeAssessmentId).toBe(v2Id);
+    const v2Record = state.savedAssessments[v2Id];
+    expect(v2Record).toBeDefined();
+    expect(v2Record.methodologyVersion).toBe('cp-sustainability-methodology-v2');
+    expect(v2Record.name).toBe('Historical Evaluation (v2 Reassessment)');
+    expect(v2Record.sourceAssessmentId).toBe(v1Id);
+
+    // 3. New v2 assessment must have copied answers but fresh undecided decision provenance
+    expect(v2Record.assessments.technical.tech_maintainability.score).toBe(2);
+    expect(v2Record.decisionRecommendation).toBe('');
+    expect(v2Record.decisionRationale).toBe('');
+    expect(state.decisionRecommendation).toBe('');
+    expect(state.decisionRationale).toBe('');
+
+    // 4. Modifying v2 reassessment must not mutate historical v1 record
+    store.updateAssessment('technical', 'tech_maintainability', 5, 'Critical tech debt uncovered in v2');
+    const stateAfterUpdate = useReviewStore.getState();
+    expect(stateAfterUpdate.savedAssessments[v2Id].assessments.technical.tech_maintainability.score).toBe(5);
+    expect(stateAfterUpdate.savedAssessments[v1Id].assessments.technical.tech_maintainability.score).toBe(2);
   });
 
   it('switches between saved assessments cleanly', () => {
@@ -242,5 +274,64 @@ describe('useReviewStore — Actions & Multi-Assessment Management', () => {
     // Existing store state must remain untouched
     const stateAfter = useReviewStore.getState();
     expect(stateAfter.systemOverview.systemName).toBe(originalName);
+  });
+
+  it('remaps sourceAssessmentId correctly when imported assessments undergo ID remapping', () => {
+    const store = useReviewStore.getState();
+    const existingId = store.activeAssessmentId;
+
+    const parentOriginalId = existingId;
+    const childOriginalId = 'child-assessment-1';
+
+    const importPayload = {
+      application: APPLICATION_ID,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      methodology: METHODOLOGY_ID,
+      exportedAt: new Date().toISOString(),
+      activeAssessmentId: childOriginalId,
+      assessments: [
+        {
+          id: parentOriginalId, // Collides with existingId
+          name: 'Parent Assessment',
+          methodologyVersion: 'cp-sustainability-methodology-v1',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          systemOverview: { systemName: 'Parent System' },
+          assessments: {},
+          decisionRecommendation: 'Proceed',
+          decisionRationale: 'Original v1 review',
+        },
+        {
+          id: childOriginalId,
+          name: 'Child Assessment',
+          methodologyVersion: 'cp-sustainability-methodology-v2',
+          sourceAssessmentId: parentOriginalId, // Points to parent which collides
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          systemOverview: { systemName: 'Child System' },
+          assessments: {},
+          decisionRecommendation: '',
+          decisionRationale: '',
+        },
+      ],
+    };
+
+    const result = store.importState(JSON.stringify(importPayload));
+    expect(result.success).toBe(true);
+
+    const stateAfter = useReviewStore.getState();
+    const importedParent = Object.values(stateAfter.savedAssessments).find((rec) =>
+      rec.name.includes('Parent Assessment')
+    );
+    const importedChild = Object.values(stateAfter.savedAssessments).find((rec) =>
+      rec.name.includes('Child Assessment')
+    );
+
+    expect(importedParent).toBeDefined();
+    expect(importedChild).toBeDefined();
+    // Parent ID must have been remapped because it collided with existingId
+    expect(importedParent!.id).not.toBe(parentOriginalId);
+    // Child sourceAssessmentId must have been updated to point to parent's new ID
+    expect(importedChild!.sourceAssessmentId).toBe(importedParent!.id);
   });
 });

@@ -16,6 +16,9 @@ export const CURRENT_SCHEMA_VERSION = 1;
 export const METHODOLOGY_ID = 'cp-sustainability-methodology-v2';
 export const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
+export const VALID_EVIDENCE_TYPES = new Set<string>(['measured', 'estimated', 'qualitative', 'unknown', '']);
+export const VALID_CONFIDENCE_LEVELS = new Set<string>(['high', 'medium', 'low', '']);
+
 export interface AssessmentResponse {
   score: number; // 1-5 scale (0 indicates unassessed in legacy data)
   notes: string;
@@ -29,6 +32,7 @@ export interface AssessmentRecord {
   id: string;
   name: string;
   methodologyVersion: MethodologyVersion;
+  sourceAssessmentId?: string;
   createdAt: string;
   updatedAt: string;
   systemOverview: SystemOverview;
@@ -122,7 +126,7 @@ export function sanitizeSystemOverview(raw: unknown): SystemOverview {
 
 /**
  * Validates and sanitizes the assessments map.
- * Rejects invalid or malicious score values while preserving optional evidence fields.
+ * Enforces strict enum checks for evidenceType and confidence.
  */
 export function validateAndSanitizeAssessments(
   raw: unknown
@@ -151,16 +155,39 @@ export function validateAndSanitizeAssessments(
       const score = resp.score;
       const notes = typeof resp.notes === 'string' ? resp.notes : '';
 
-      const evidenceType = typeof resp.evidenceType === 'string' ? (resp.evidenceType as EvidenceType) : undefined;
+      const safeResponse: AssessmentResponse = { score: 0, notes };
+
+      // Validate evidenceType enum
+      if (resp.evidenceType !== undefined && resp.evidenceType !== null) {
+        if (typeof resp.evidenceType !== 'string' || !VALID_EVIDENCE_TYPES.has(resp.evidenceType)) {
+          return {
+            valid: false,
+            error: `Invalid evidenceType "${String(resp.evidenceType)}" for question "${questionId}". Allowed values: measured, estimated, qualitative, unknown.`,
+          };
+        }
+        if (resp.evidenceType) {
+          safeResponse.evidenceType = resp.evidenceType as EvidenceType;
+        }
+      }
+
+      // Validate confidence enum
+      if (resp.confidence !== undefined && resp.confidence !== null) {
+        if (typeof resp.confidence !== 'string' || !VALID_CONFIDENCE_LEVELS.has(resp.confidence)) {
+          return {
+            valid: false,
+            error: `Invalid confidence "${String(resp.confidence)}" for question "${questionId}". Allowed values: high, medium, low.`,
+          };
+        }
+        if (resp.confidence) {
+          safeResponse.confidence = resp.confidence as ConfidenceLevel;
+        }
+      }
+
       const evidenceSource = typeof resp.evidenceSource === 'string' ? resp.evidenceSource : undefined;
       const assumptions = typeof resp.assumptions === 'string' ? resp.assumptions : undefined;
-      const confidence = typeof resp.confidence === 'string' ? (resp.confidence as ConfidenceLevel) : undefined;
 
-      const safeResponse: AssessmentResponse = { score: 0, notes };
-      if (evidenceType) safeResponse.evidenceType = evidenceType;
       if (evidenceSource) safeSourceText(safeResponse, 'evidenceSource', evidenceSource);
       if (assumptions) safeSourceText(safeResponse, 'assumptions', assumptions);
-      if (confidence) safeResponse.confidence = confidence;
 
       // Score can be valid integer 1-5, or 0 (unanswered placeholder in legacy data)
       if (score === 0 || score === undefined || score === null) {
@@ -215,6 +242,11 @@ export function validateAssessmentRecord(
       ? LEGACY_METHODOLOGY_VERSION
       : DEFAULT_METHODOLOGY_VERSION;
 
+  const sourceAssessmentId =
+    typeof obj.sourceAssessmentId === 'string' && obj.sourceAssessmentId.trim()
+      ? obj.sourceAssessmentId.trim()
+      : undefined;
+
   const createdAt =
     typeof obj.createdAt === 'string' ? obj.createdAt : new Date().toISOString();
   const updatedAt =
@@ -240,6 +272,7 @@ export function validateAssessmentRecord(
       id,
       name: String(name),
       methodologyVersion,
+      sourceAssessmentId,
       createdAt,
       updatedAt,
       systemOverview,

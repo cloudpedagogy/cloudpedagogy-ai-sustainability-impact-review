@@ -49,7 +49,7 @@ export interface ReviewState {
   saveCurrentAssessment: (name?: string) => void;
   deleteAssessment: (id: string) => void;
   duplicateAssessment: (id: string) => string;
-  upgradeAssessmentMethodology: (id?: string) => void;
+  upgradeAssessmentMethodology: (id?: string) => string;
 
   // Reset and import
   clearCurrentReview: () => void;
@@ -400,24 +400,46 @@ export const useReviewStore = create<ReviewState>()(
       },
 
       upgradeAssessmentMethodology: (id?: string) => {
-        set((state) => {
-          const targetId = id || state.activeAssessmentId;
-          const currentRecord = state.savedAssessments[targetId];
-          if (!currentRecord) return state;
+        const state = get();
+        const sourceId = id || state.activeAssessmentId;
+        const sourceRecord = state.savedAssessments[sourceId];
+        if (!sourceRecord) return '';
 
-          const updatedRecord: AssessmentRecord = {
-            ...currentRecord,
-            methodologyVersion: DEFAULT_METHODOLOGY_VERSION,
-            updatedAt: new Date().toISOString(),
-          };
+        const newId = generateId('reassessment-v2');
+        const timestamp = new Date().toISOString();
 
-          return {
-            savedAssessments: {
-              ...state.savedAssessments,
-              [targetId]: updatedRecord,
-            },
-          };
-        });
+        // Preserve the original v1 record completely unchanged.
+        // Create a new v2 reassessment deep-copying original answers, evidence, and system overview.
+        const v2Record: AssessmentRecord = {
+          id: newId,
+          name: `${sourceRecord.name} (v2 Reassessment)`,
+          methodologyVersion: DEFAULT_METHODOLOGY_VERSION,
+          sourceAssessmentId: sourceId,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          systemOverview: {
+            ...JSON.parse(JSON.stringify(sourceRecord.systemOverview)),
+            reviewDate: timestamp.split('T')[0],
+          },
+          assessments: JSON.parse(JSON.stringify(sourceRecord.assessments)),
+          // Decision provenance: fresh undecided decision for the expanded v2 assessment
+          decisionRecommendation: '',
+          decisionRationale: '',
+        };
+
+        set((prev) => ({
+          activeAssessmentId: newId,
+          systemOverview: { ...v2Record.systemOverview },
+          assessments: JSON.parse(JSON.stringify(v2Record.assessments)),
+          decisionRecommendation: '',
+          decisionRationale: '',
+          savedAssessments: {
+            ...prev.savedAssessments,
+            [newId]: v2Record,
+          },
+        }));
+
+        return newId;
       },
 
       clearCurrentReview: () => {
@@ -476,28 +498,40 @@ export const useReviewStore = create<ReviewState>()(
         const existingAssessments = get().savedAssessments;
         const existingIds = new Set(Object.keys(existingAssessments));
 
+        // Map from imported original ID to resolved ID in this store
+        const idMap: Record<string, string> = {};
+        for (const record of parseResult.assessments) {
+          let targetId = record.id;
+          if (existingIds.has(targetId)) {
+            targetId = generateId('imported');
+          }
+          idMap[record.id] = targetId;
+          existingIds.add(targetId);
+        }
+
         const newMap: Record<string, AssessmentRecord> = {};
         const safeRecords: AssessmentRecord[] = [];
 
-        // Safe Collision Policy: If an imported assessment ID already exists, import as a new copy with fresh ID
         for (const record of parseResult.assessments) {
-          let targetId = record.id;
-          let targetName = record.name;
+          const finalId = idMap[record.id];
+          const isColliding = finalId !== record.id;
+          const finalName = isColliding ? `${record.name} (Imported)` : record.name;
 
-          if (existingIds.has(targetId)) {
-            targetId = generateId('imported');
-            targetName = `${record.name} (Imported)`;
+          // If sourceAssessmentId was also in the imported bundle and remapped, update the link
+          let finalSourceId = record.sourceAssessmentId;
+          if (finalSourceId && idMap[finalSourceId]) {
+            finalSourceId = idMap[finalSourceId];
           }
 
           const safeRecord: AssessmentRecord = {
             ...record,
-            id: targetId,
-            name: targetName,
+            id: finalId,
+            name: finalName,
+            sourceAssessmentId: finalSourceId,
           };
 
-          newMap[targetId] = safeRecord;
+          newMap[finalId] = safeRecord;
           safeRecords.push(safeRecord);
-          existingIds.add(targetId);
         }
 
         const targetRecord = safeRecords[0];

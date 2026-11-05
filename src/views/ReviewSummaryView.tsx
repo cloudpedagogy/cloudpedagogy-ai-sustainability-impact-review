@@ -81,7 +81,7 @@ export function ReviewSummaryView() {
                 Historical Review Evaluated Under Methodology v1 (34 Questions)
               </div>
               <p className="text-xs text-blue-800 mt-0.5 leading-relaxed">
-                This assessment was completed under the original 34-question framework. Its completeness and historical scores are preserved. You can upgrade to Methodology v2 to evaluate expanded environmental dimensions (training/inference compute, grid carbon, hardware lifecycle, and water impact).
+                This assessment was completed under the original 34-question framework. Its completeness and historical decision are preserved. You can create a linked Methodology v2 reassessment revision to evaluate expanded environmental dimensions (training/inference compute, grid carbon, hardware lifecycle, and water impact) while preserving this original record.
               </p>
             </div>
           </div>
@@ -89,9 +89,24 @@ export function ReviewSummaryView() {
             onClick={() => upgradeAssessmentMethodology(activeAssessmentId)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors shrink-0"
           >
-            <span>Upgrade to v2</span>
+            <span>Create v2 Reassessment</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {/* Linked Historical Reassessment Notice */}
+      {activeRecord?.sourceAssessmentId && (
+        <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 text-xs text-slate-700 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-slate-500 shrink-0" />
+            <span>
+              This is a Methodology v2 reassessment linked to historical source record:{' '}
+              <strong>
+                {savedAssessments[activeRecord.sourceAssessmentId]?.name || activeRecord.sourceAssessmentId}
+              </strong>
+            </span>
+          </div>
         </div>
       )}
 
