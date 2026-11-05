@@ -19,11 +19,11 @@ export function SystemOverviewView() {
   };
 
   return (
-    <div className="max-w-3xl space-y-8 animate-in fade-in duration-500">
+    <div className="max-w-3xl space-y-8 animate-in fade-in duration-500 pb-12">
       <div>
         <h2 className="text-2xl font-bold text-slate-900">System Overview</h2>
         <p className="mt-2 text-slate-600">
-          Provide high-level context for the system or workflow under review.
+          Provide contextual and technical metadata for the AI system or workflow under sustainability review.
         </p>
       </div>
 
@@ -37,7 +37,7 @@ export function SystemOverviewView() {
               value={systemOverview.systemName} 
               onChange={handleChange}
               className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
-              placeholder="e.g. Adaptive Learning Assistant"
+              placeholder="e.g. Institutional LLM Student Advisory Gateway"
             />
           </div>
 
@@ -49,7 +49,19 @@ export function SystemOverviewView() {
               onChange={handleChange}
               rows={3}
               className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
-              placeholder="Brief description of the system's purpose and functionality"
+              placeholder="Brief description of the system's purpose, scope, and technical functionality"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Operational Setting & Context of Use</label>
+            <textarea 
+              name="contextOfUse" 
+              value={systemOverview.contextOfUse} 
+              onChange={handleChange}
+              rows={2}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+              placeholder="e.g. Production environment deployed across university faculties for real-time tutoring"
             />
           </div>
 
@@ -69,14 +81,26 @@ export function SystemOverviewView() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Context of Use / Sector</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">AI System Type & Modality</label>
+            <input 
+              type="text" 
+              name="aiUseType" 
+              value={systemOverview.aiUseType} 
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+              placeholder="e.g. Hosted LLM API, Fine-Tuned SLM, RAG Pipeline"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Sector / Department</label>
             <input 
               type="text" 
               name="sector" 
               value={systemOverview.sector} 
               onChange={handleChange}
               className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
-              placeholder="e.g. Higher Education, Research, Admin"
+              placeholder="e.g. Higher Education / Academic Computing"
             />
           </div>
 
@@ -101,23 +125,48 @@ export function SystemOverviewView() {
               className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white"
             >
               <option value="">Select stage...</option>
-              <option value="Idea">Idea</option>
-              <option value="Prototype">Prototype</option>
-              <option value="Pilot">Pilot</option>
-              <option value="Operational">Operational</option>
-              <option value="Scaling">Scaling</option>
-              <option value="Retiring">Retiring</option>
+              <option value="Idea">Idea / Discovery</option>
+              <option value="Prototype">Prototype / Feasibility</option>
+              <option value="Pilot">Pilot / Controlled Trial</option>
+              <option value="Operational">Operational / In Production</option>
+              <option value="Scaling">Scaling / Broad Adoption</option>
+              <option value="Retiring">Retiring / Decommissioning</option>
             </select>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">System Owner (Role/Dept)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Intended Operational Horizon</label>
+            <input 
+              type="text" 
+              name="intendedDuration" 
+              value={systemOverview.intendedDuration} 
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+              placeholder="e.g. 3-year institutional license, 1-year research grant"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">System Owner (Role / Unit)</label>
             <input 
               type="text" 
               name="systemOwner" 
               value={systemOverview.systemOwner} 
               onChange={handleChange}
               className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+              placeholder="e.g. Head of Educational Technology"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Key Stakeholders & Governance Bodies</label>
+            <input 
+              type="text" 
+              name="keyStakeholders" 
+              value={systemOverview.keyStakeholders} 
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+              placeholder="e.g. Academic Standards Committee, IT Security, Student Union, DPO"
             />
           </div>
 

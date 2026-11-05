@@ -1,5 +1,6 @@
-import type { Category, Question } from '../config/assessmentSchema';
-import type { AssessmentResponse } from '../store/useReviewStore';
+import type { Category, Question, MethodologyVersion } from '../config/assessmentSchema';
+import { ASSESSMENT_CATEGORIES_V2, DEFAULT_METHODOLOGY_VERSION } from '../config/assessmentSchema';
+import type { AssessmentResponse } from './serialization';
 
 export interface SevereConcernQuestion {
   questionId: string;
@@ -31,6 +32,7 @@ export interface CategoryScoreSummary {
 }
 
 export interface OverallScoreSummary {
+  methodologyVersion: MethodologyVersion;
   totalQuestions: number;
   answeredQuestions: number;
   unansweredQuestions: number;
@@ -188,14 +190,14 @@ export function calculateCategoryScore(
 
   const answeredQuestions = answeredScores.length;
   const unansweredQuestions = totalQuestions - answeredQuestions;
-  const completionPercentage = totalQuestions > 0
-    ? Math.round((answeredQuestions / totalQuestions) * 100)
-    : 0;
+  const completionPercentage =
+    totalQuestions > 0 ? Math.round((answeredQuestions / totalQuestions) * 100) : 0;
   const isComplete = answeredQuestions === totalQuestions;
 
-  const average = answeredQuestions > 0
-    ? Number((answeredScores.reduce((acc, curr) => acc + curr, 0) / answeredQuestions).toFixed(2))
-    : null;
+  const average =
+    answeredQuestions > 0
+      ? Number((answeredScores.reduce((acc, curr) => acc + curr, 0) / answeredQuestions).toFixed(2))
+      : null;
 
   const maxScore = answeredScores.length > 0 ? Math.max(...answeredScores) : null;
   const hasSevereConcern = severeConcernQuestions.length > 0;
@@ -228,8 +230,9 @@ export function calculateCategoryScore(
  * completion status, max individual concern score, and lists of categories with severe concerns.
  */
 export function calculateOverallScore(
-  categories: Category[],
-  assessments: Record<string, Record<string, AssessmentResponse>> | undefined
+  categories: Category[] = ASSESSMENT_CATEGORIES_V2,
+  assessments: Record<string, Record<string, AssessmentResponse>> | undefined,
+  methodologyVersion: MethodologyVersion = DEFAULT_METHODOLOGY_VERSION
 ): OverallScoreSummary {
   const safeAssessments = assessments || {};
 
@@ -240,20 +243,22 @@ export function calculateOverallScore(
   const totalQuestions = categorySummaries.reduce((sum, c) => sum + c.totalQuestions, 0);
   const answeredQuestions = categorySummaries.reduce((sum, c) => sum + c.answeredQuestions, 0);
   const unansweredQuestions = totalQuestions - answeredQuestions;
-  const completionPercentage = totalQuestions > 0
-    ? Math.round((answeredQuestions / totalQuestions) * 100)
-    : 0;
+  const completionPercentage =
+    totalQuestions > 0 ? Math.round((answeredQuestions / totalQuestions) * 100) : 0;
   const isComplete = totalQuestions > 0 && answeredQuestions === totalQuestions;
 
   const validCategoryAverages = categorySummaries
     .map((c) => c.average)
     .filter((avg): avg is number => avg !== null);
 
-  const average = validCategoryAverages.length > 0
-    ? Number(
-        (validCategoryAverages.reduce((acc, curr) => acc + curr, 0) / validCategoryAverages.length).toFixed(2)
-      )
-    : null;
+  const average =
+    validCategoryAverages.length > 0
+      ? Number(
+          (
+            validCategoryAverages.reduce((acc, curr) => acc + curr, 0) / validCategoryAverages.length
+          ).toFixed(2)
+        )
+      : null;
 
   const maxScore = categorySummaries.reduce<number | null>((currentMax, c) => {
     if (c.maxScore === null) return currentMax;
@@ -270,7 +275,6 @@ export function calculateOverallScore(
   const highestRiskCategories = categorySummaries
     .filter((c) => c.requiresMitigation)
     .sort((a, b) => {
-      // Sort primarily by average descending, then by maxScore
       const avgA = a.average ?? 0;
       const avgB = b.average ?? 0;
       if (avgB !== avgA) return avgB - avgA;
@@ -280,6 +284,7 @@ export function calculateOverallScore(
   const overallRiskBand = getRiskLabelAndColor(average, isComplete);
 
   return {
+    methodologyVersion,
     totalQuestions,
     answeredQuestions,
     unansweredQuestions,

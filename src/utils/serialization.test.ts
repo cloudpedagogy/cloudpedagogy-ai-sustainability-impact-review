@@ -14,15 +14,26 @@ function createMockRecord(id: string = 'test-rec-1', name: string = 'Test System
   return {
     id,
     name,
+    methodologyVersion: 'cp-sustainability-methodology-v2',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     systemOverview: {
       ...initialSystemOverview,
       systemName: name,
+      contextOfUse: 'University production deployment',
+      aiUseType: 'Hosted LLM API',
+      intendedDuration: '2 years',
+      keyStakeholders: 'Faculty, Students, IT Architecture',
     },
     assessments: {
       technical: {
-        tech_maintainability: { score: 2, notes: 'Maintained by team' },
+        tech_maintainability: {
+          score: 2,
+          notes: 'Maintained by team',
+          evidenceType: 'measured',
+          evidenceSource: 'Git commit activity logs',
+          confidence: 'high',
+        },
         tech_dependencies: { score: 1, notes: 'Fully documented' },
       },
     },
@@ -42,12 +53,14 @@ describe('Serialization — createExportBundle', () => {
     expect(bundle.activeAssessmentId).toBe(record.id);
     expect(bundle.assessments).toHaveLength(1);
     expect(bundle.assessments[0].name).toBe('Test System');
+    expect(bundle.assessments[0].systemOverview.aiUseType).toBe('Hosted LLM API');
+    expect(bundle.assessments[0].assessments.technical.tech_maintainability.evidenceType).toBe('measured');
     expect(bundle.exportedAt).toBeDefined();
   });
 });
 
 describe('Serialization — validateAndParseImport (Version 1 Bundles)', () => {
-  it('successfully validates and parses a valid version 1 bundle', () => {
+  it('successfully validates and parses a valid version 1 bundle with evidence fields', () => {
     const record = createMockRecord();
     const bundle = createExportBundle({ [record.id]: record }, record.id);
     const jsonStr = JSON.stringify(bundle);
@@ -58,6 +71,9 @@ describe('Serialization — validateAndParseImport (Version 1 Bundles)', () => {
       expect(result.assessments).toHaveLength(1);
       expect(result.assessments[0].id).toBe(record.id);
       expect(result.assessments[0].name).toBe('Test System');
+      expect(result.assessments[0].methodologyVersion).toBe('cp-sustainability-methodology-v2');
+      expect(result.assessments[0].assessments.technical.tech_maintainability.evidenceType).toBe('measured');
+      expect(result.assessments[0].assessments.technical.tech_maintainability.evidenceSource).toBe('Git commit activity logs');
       expect(result.activeAssessmentId).toBe(record.id);
     }
   });
@@ -105,7 +121,7 @@ describe('Serialization — validateAndParseImport (Version 1 Bundles)', () => {
 });
 
 describe('Serialization — validateAndParseImport (Legacy Exports)', () => {
-  it('successfully migrates and normalizes legacy unversioned store exports', () => {
+  it('successfully migrates and normalizes legacy unversioned store exports as methodology v1', () => {
     const legacyExport = {
       systemOverview: {
         systemName: 'Legacy AI Review',
@@ -130,6 +146,7 @@ describe('Serialization — validateAndParseImport (Legacy Exports)', () => {
       expect(result.assessments).toHaveLength(1);
       const migrated = result.assessments[0];
       expect(migrated.name).toBe('Legacy AI Review');
+      expect(migrated.methodologyVersion).toBe('cp-sustainability-methodology-v1');
       expect(migrated.assessments.technical.tech_maintainability.score).toBe(3);
       expect(migrated.decisionRecommendation).toBe('Proceed');
     }
@@ -144,7 +161,6 @@ describe('Serialization — validateAndParseImport (Error Handling & Limits)', (
   });
 
   it('rejects files exceeding the maximum size limit', () => {
-    // Construct dummy string just exceeding MAX_IMPORT_FILE_SIZE_BYTES
     const oversizedString = ' '.repeat(MAX_IMPORT_FILE_SIZE_BYTES + 10);
     const result = validateAndParseImport(oversizedString);
 

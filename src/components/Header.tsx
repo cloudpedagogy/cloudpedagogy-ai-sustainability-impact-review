@@ -3,7 +3,7 @@ import { Download, Upload, Trash2, ShieldCheck, Plus, Copy, FolderOpen } from 'l
 import { useReviewStore } from '../store/useReviewStore';
 import { createExportBundle, MAX_IMPORT_FILE_SIZE_BYTES } from '../utils/serialization';
 import { calculateOverallScore } from '../utils/scoring';
-import { ASSESSMENT_CATEGORIES } from '../config/assessmentSchema';
+import { getCategoriesForMethodology } from '../config/assessmentSchema';
 
 export function Header() {
   const {
@@ -63,7 +63,7 @@ export function Header() {
         const content = readEvent.target?.result as string;
         const result = importState(content);
         if (result.success) {
-          showNotification('Assessment data imported successfully.', 'success');
+          showNotification('Assessment data imported successfully. Existing records preserved.', 'success');
         } else {
           showNotification(`Import validation rejected: ${result.error}`, 'error');
         }
@@ -147,13 +147,15 @@ export function Header() {
               className="text-sm font-medium text-slate-900 bg-slate-50 border border-slate-300 rounded-md px-2.5 py-1 max-w-[220px] sm:max-w-xs truncate focus:outline-none focus:ring-2 focus:ring-slate-500"
             >
               {savedList.map((record) => {
-                const summary = calculateOverallScore(ASSESSMENT_CATEGORIES, record.assessments);
+                const categories = getCategoriesForMethodology(record.methodologyVersion);
+                const summary = calculateOverallScore(categories, record.assessments, record.methodologyVersion);
                 const statusTag = summary.isComplete
                   ? 'Complete'
                   : `Draft ${summary.completionPercentage}%`;
+                const versionTag = record.methodologyVersion === 'cp-sustainability-methodology-v1' ? ' [v1]' : '';
                 return (
                   <option key={record.id} value={record.id}>
-                    [{statusTag}] {record.name}
+                    [{statusTag}]{versionTag} {record.name}
                   </option>
                 );
               })}

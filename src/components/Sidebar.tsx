@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { ASSESSMENT_CATEGORIES } from '../config/assessmentSchema';
+import { getCategoriesForMethodology } from '../config/assessmentSchema';
 import { FileText, CheckCircle, LayoutDashboard, Flag, Circle } from 'lucide-react';
 import { useReviewStore } from '../store/useReviewStore';
 import { calculateCategoryScore } from '../utils/scoring';
@@ -7,10 +7,13 @@ import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 export function Sidebar() {
-  const { assessments, decisionRecommendation } = useReviewStore();
+  const { activeAssessmentId, savedAssessments, assessments, decisionRecommendation } = useReviewStore();
+
+  const activeRecord = savedAssessments[activeAssessmentId];
+  const categories = getCategoriesForMethodology(activeRecord?.methodologyVersion);
 
   const isCategoryComplete = (categoryId: string) => {
-    const category = ASSESSMENT_CATEGORIES.find((c) => c.id === categoryId);
+    const category = categories.find((c) => c.id === categoryId);
     if (!category) return false;
     return calculateCategoryScore(category, assessments[categoryId]).isComplete;
   };
@@ -46,7 +49,7 @@ export function Sidebar() {
           </h2>
         </div>
 
-        {ASSESSMENT_CATEGORIES.map((category) => {
+        {categories.map((category) => {
           const isComplete = isCategoryComplete(category.id);
           return (
             <NavLink key={category.id} to={`/category/${category.id}`} className={navLinkClass}>

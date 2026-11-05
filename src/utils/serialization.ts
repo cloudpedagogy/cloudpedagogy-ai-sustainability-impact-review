@@ -1,15 +1,34 @@
-import type { SystemOverview, DecisionRecommendation } from '../config/assessmentSchema';
-import type { AssessmentResponse } from '../store/useReviewStore';
+import type {
+  SystemOverview,
+  DecisionRecommendation,
+  EvidenceType,
+  ConfidenceLevel,
+  MethodologyVersion,
+} from '../config/assessmentSchema';
+import {
+  DEFAULT_METHODOLOGY_VERSION,
+  LEGACY_METHODOLOGY_VERSION,
+} from '../config/assessmentSchema';
 import { isValidScore } from './scoring';
 
 export const APPLICATION_ID = 'cloudpedagogy-ai-sustainability-impact-review';
 export const CURRENT_SCHEMA_VERSION = 1;
-export const METHODOLOGY_ID = 'cp-sustainability-methodology-v1';
+export const METHODOLOGY_ID = 'cp-sustainability-methodology-v2';
 export const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+export interface AssessmentResponse {
+  score: number; // 1-5 scale (0 indicates unassessed in legacy data)
+  notes: string;
+  evidenceType?: EvidenceType;
+  evidenceSource?: string;
+  assumptions?: string;
+  confidence?: ConfidenceLevel;
+}
 
 export interface AssessmentRecord {
   id: string;
   name: string;
+  methodologyVersion: MethodologyVersion;
   createdAt: string;
   updatedAt: string;
   systemOverview: SystemOverview;
@@ -21,7 +40,7 @@ export interface AssessmentRecord {
 export interface ExportedAssessmentBundle {
   application: typeof APPLICATION_ID;
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
-  methodology: typeof METHODOLOGY_ID;
+  methodology: MethodologyVersion;
   exportedAt: string;
   activeAssessmentId: string;
   assessments: AssessmentRecord[];
@@ -46,11 +65,13 @@ export function createExportBundle(
   activeAssessmentId: string
 ): ExportedAssessmentBundle {
   const records = Object.values(assessments);
+  const activeRecord = assessments[activeAssessmentId];
+  const methodology = activeRecord?.methodologyVersion || DEFAULT_METHODOLOGY_VERSION;
 
   return {
     application: APPLICATION_ID,
     schemaVersion: CURRENT_SCHEMA_VERSION,
-    methodology: METHODOLOGY_ID,
+    methodology,
     exportedAt: new Date().toISOString(),
     activeAssessmentId,
     assessments: records,
@@ -60,7 +81,7 @@ export function createExportBundle(
 /**
  * Sanitizes and validates a single SystemOverview object.
  */
-function sanitizeSystemOverview(raw: unknown): SystemOverview {
+export function sanitizeSystemOverview(raw: unknown): SystemOverview {
   if (typeof raw !== 'object' || raw === null) {
     return {
       systemName: '',
@@ -80,7 +101,6 @@ function sanitizeSystemOverview(raw: unknown): SystemOverview {
   }
 
   const obj = raw as Record<string, unknown>;
-
   const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
   return {
@@ -102,9 +122,9 @@ function sanitizeSystemOverview(raw: unknown): SystemOverview {
 
 /**
  * Validates and sanitizes the assessments map.
- * Rejects invalid or malicious score values.
+ * Rejects invalid or malicious score values while preserving optional evidence fields.
  */
-function validateAndSanitizeAssessments(
+export function validateAndSanitizeAssessments(
   raw: unknown
 ): { valid: true; assessments: Record<string, Record<string, AssessmentResponse>> } | { valid: false; error: string } {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -131,11 +151,24 @@ function validateAndSanitizeAssessments(
       const score = resp.score;
       const notes = typeof resp.notes === 'string' ? resp.notes : '';
 
+      const evidenceType = typeof resp.evidenceType === 'string' ? (resp.evidenceType as EvidenceType) : undefined;
+      const evidenceSource = typeof resp.evidenceSource === 'string' ? resp.evidenceSource : undefined;
+      const assumptions = typeof resp.assumptions === 'string' ? resp.assumptions : undefined;
+      const confidence = typeof resp.confidence === 'string' ? (resp.confidence as ConfidenceLevel) : undefined;
+
+      const safeResponse: AssessmentResponse = { score: 0, notes };
+      if (evidenceType) safeResponse.evidenceType = evidenceType;
+      if (evidenceSource) safeSourceText(safeResponse, 'evidenceSource', evidenceSource);
+      if (assumptions) safeSourceText(safeResponse, 'assumptions', assumptions);
+      if (confidence) safeResponse.confidence = confidence;
+
       // Score can be valid integer 1-5, or 0 (unanswered placeholder in legacy data)
       if (score === 0 || score === undefined || score === null) {
-        result[categoryId][questionId] = { score: 0, notes };
+        safeResponse.score = 0;
+        result[categoryId][questionId] = safeResponse;
       } else if (isValidScore(score)) {
-        result[categoryId][questionId] = { score, notes };
+        safeResponse.score = score;
+        result[categoryId][questionId] = safeResponse;
       } else {
         return {
           valid: false,
@@ -148,10 +181,16 @@ function validateAndSanitizeAssessments(
   return { valid: true, assessments: result };
 }
 
+function safeSourceText(resp: AssessmentResponse, key: 'evidenceSource' | 'assumptions', text: string) {
+  if (text.trim()) {
+    resp[key] = text;
+  }
+}
+
 /**
  * Validates a single AssessmentRecord.
  */
-function validateAssessmentRecord(
+export function validateAssessmentRecord(
   raw: unknown,
   fallbackId: string
 ): { valid: true; record: AssessmentRecord } | { valid: false; error: string } {
@@ -169,6 +208,12 @@ function validateAssessmentRecord(
           typeof (obj.systemOverview as Record<string, unknown>).systemName === 'string' &&
           (obj.systemOverview as Record<string, unknown>).systemName) ||
         'Imported Assessment';
+
+  const methodologyVersion: MethodologyVersion =
+    obj.methodologyVersion === 'cp-sustainability-methodology-v1' ||
+    obj.methodology === 'cp-sustainability-methodology-v1'
+      ? LEGACY_METHODOLOGY_VERSION
+      : DEFAULT_METHODOLOGY_VERSION;
 
   const createdAt =
     typeof obj.createdAt === 'string' ? obj.createdAt : new Date().toISOString();
@@ -194,6 +239,7 @@ function validateAssessmentRecord(
     record: {
       id,
       name: String(name),
+      methodologyVersion,
       createdAt,
       updatedAt,
       systemOverview,
@@ -206,7 +252,7 @@ function validateAssessmentRecord(
 
 /**
  * Safely parses and validates imported JSON data.
- * Supports both Version 1 bundles and legacy unversioned exports.
+ * Supports Version 1 bundles, single assessment exports, and legacy unversioned exports.
  */
 export function validateAndParseImport(jsonString: string): ImportParseResult {
   if (!jsonString || typeof jsonString !== 'string') {
@@ -293,10 +339,13 @@ export function validateAndParseImport(jsonString: string): ImportParseResult {
   }
 
   // CASE 3: Legacy Unversioned State (Version 0)
-  // Legacy export dumped raw store: { systemOverview, assessments, decisionRecommendation, decisionRationale }
   if ('systemOverview' in obj || 'assessments' in obj) {
     const fallbackId = `legacy-${Date.now()}`;
-    const val = validateAssessmentRecord(obj, fallbackId);
+    const legacyPayload = {
+      ...obj,
+      methodologyVersion: LEGACY_METHODOLOGY_VERSION,
+    };
+    const val = validateAssessmentRecord(legacyPayload, fallbackId);
     if (!val.valid) {
       return { success: false, error: `Legacy export validation failed: ${val.error}` };
     }

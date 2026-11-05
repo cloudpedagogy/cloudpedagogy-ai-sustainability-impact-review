@@ -5,7 +5,10 @@ import {
   calculateCategoryScore,
   calculateOverallScore,
 } from './scoring';
-import { ASSESSMENT_CATEGORIES } from '../config/assessmentSchema';
+import {
+  ASSESSMENT_CATEGORIES_V2,
+  getCategoriesForMethodology,
+} from '../config/assessmentSchema';
 import type { Category } from '../config/assessmentSchema';
 
 describe('Scoring Utility — isValidScore', () => {
@@ -149,12 +152,64 @@ describe('Scoring Utility — calculateCategoryScore', () => {
   });
 });
 
+describe('Scoring Utility — Methodology V1 vs V2', () => {
+  it('correctly provides 34 questions for v1 and 38 questions for v2', () => {
+    const v1Cats = getCategoriesForMethodology('cp-sustainability-methodology-v1');
+    const v2Cats = getCategoriesForMethodology('cp-sustainability-methodology-v2');
+
+    const totalV1 = v1Cats.reduce((sum, c) => sum + c.questions.length, 0);
+    const totalV2 = v2Cats.reduce((sum, c) => sum + c.questions.length, 0);
+
+    expect(totalV1).toBe(34);
+    expect(totalV2).toBe(38);
+
+    const v1Env = v1Cats.find((c) => c.id === 'environmental')!;
+    const v2Env = v2Cats.find((c) => c.id === 'environmental')!;
+
+    expect(v1Env.questions).toHaveLength(4);
+    expect(v2Env.questions).toHaveLength(8);
+
+    // Confirms all v1 question IDs exist in v2
+    v1Env.questions.forEach((q) => {
+      expect(v2Env.questions.some((q2) => q2.id === q.id)).toBe(true);
+    });
+  });
+
+  it('preserves 100% completion for legacy assessments evaluated under v1', () => {
+    const v1Cats = getCategoriesForMethodology('cp-sustainability-methodology-v1');
+    const completeV1Answers: Record<string, Record<string, { score: number; notes: string }>> = {};
+
+    v1Cats.forEach((cat) => {
+      completeV1Answers[cat.id] = {};
+      cat.questions.forEach((q) => {
+        completeV1Answers[cat.id][q.id] = { score: 2, notes: '' };
+      });
+    });
+
+    const summaryV1 = calculateOverallScore(v1Cats, completeV1Answers, 'cp-sustainability-methodology-v1');
+    expect(summaryV1.totalQuestions).toBe(34);
+    expect(summaryV1.answeredQuestions).toBe(34);
+    expect(summaryV1.isComplete).toBe(true);
+    expect(summaryV1.completionPercentage).toBe(100);
+    expect(summaryV1.overallRiskBand.isProvisional).toBe(false);
+
+    // If evaluated under v2 without answering the 4 new questions, it is provisional
+    const v2Cats = getCategoriesForMethodology('cp-sustainability-methodology-v2');
+    const summaryUnderV2 = calculateOverallScore(v2Cats, completeV1Answers, 'cp-sustainability-methodology-v2');
+    expect(summaryUnderV2.totalQuestions).toBe(38);
+    expect(summaryUnderV2.answeredQuestions).toBe(34);
+    expect(summaryUnderV2.unansweredQuestions).toBe(4);
+    expect(summaryUnderV2.isComplete).toBe(false);
+    expect(summaryUnderV2.overallRiskBand.isProvisional).toBe(true);
+  });
+});
+
 describe('Scoring Utility — calculateOverallScore', () => {
-  it('correctly reports 0% completion for brand new review', () => {
-    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES, {});
-    expect(overall.totalQuestions).toBe(34);
+  it('correctly reports 0% completion for brand new v2 review', () => {
+    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES_V2, {});
+    expect(overall.totalQuestions).toBe(38);
     expect(overall.answeredQuestions).toBe(0);
-    expect(overall.unansweredQuestions).toBe(34);
+    expect(overall.unansweredQuestions).toBe(38);
     expect(overall.completionPercentage).toBe(0);
     expect(overall.isComplete).toBe(false);
     expect(overall.average).toBeNull();
@@ -171,7 +226,7 @@ describe('Scoring Utility — calculateOverallScore', () => {
       },
     };
 
-    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES, partialAssessments);
+    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES_V2, partialAssessments);
     expect(overall.answeredQuestions).toBe(2);
     expect(overall.isComplete).toBe(false);
     expect(overall.overallRiskBand.isProvisional).toBe(true);
@@ -180,19 +235,19 @@ describe('Scoring Utility — calculateOverallScore', () => {
     expect(overall.overallRiskBand.label).not.toBe('Sustainable / Low Risk');
   });
 
-  it('correctly aggregates full assessment when all 34 questions are answered', () => {
+  it('correctly aggregates full assessment when all 38 questions in v2 are answered', () => {
     const completeAssessments: Record<string, Record<string, { score: number; notes: string }>> = {};
 
-    ASSESSMENT_CATEGORIES.forEach((cat) => {
+    ASSESSMENT_CATEGORIES_V2.forEach((cat) => {
       completeAssessments[cat.id] = {};
       cat.questions.forEach((q) => {
         completeAssessments[cat.id][q.id] = { score: 2, notes: 'Good condition' };
       });
     });
 
-    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES, completeAssessments);
-    expect(overall.totalQuestions).toBe(34);
-    expect(overall.answeredQuestions).toBe(34);
+    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES_V2, completeAssessments);
+    expect(overall.totalQuestions).toBe(38);
+    expect(overall.answeredQuestions).toBe(38);
     expect(overall.unansweredQuestions).toBe(0);
     expect(overall.completionPercentage).toBe(100);
     expect(overall.isComplete).toBe(true);
@@ -206,7 +261,7 @@ describe('Scoring Utility — calculateOverallScore', () => {
   it('highlights severe concerns across multiple categories even with low overall average', () => {
     const mixedAssessments: Record<string, Record<string, { score: number; notes: string }>> = {};
 
-    ASSESSMENT_CATEGORIES.forEach((cat) => {
+    ASSESSMENT_CATEGORIES_V2.forEach((cat) => {
       mixedAssessments[cat.id] = {};
       cat.questions.forEach((q) => {
         mixedAssessments[cat.id][q.id] = { score: 1, notes: '' };
@@ -217,7 +272,7 @@ describe('Scoring Utility — calculateOverallScore', () => {
     mixedAssessments.technical.tech_fallback = { score: 5, notes: 'No fallback exists' };
     mixedAssessments.environmental.env_infrastructure = { score: 4, notes: 'Massive compute usage' };
 
-    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES, mixedAssessments);
+    const overall = calculateOverallScore(ASSESSMENT_CATEGORIES_V2, mixedAssessments);
     expect(overall.isComplete).toBe(true);
     expect(overall.maxScore).toBe(5);
     expect(overall.severeConcernCount).toBe(2);

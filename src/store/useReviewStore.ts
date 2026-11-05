@@ -1,16 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { SystemOverview, DecisionRecommendation } from '../config/assessmentSchema';
-import type { AssessmentRecord } from '../utils/serialization';
+import type {
+  SystemOverview,
+  DecisionRecommendation,
+  EvidenceType,
+  ConfidenceLevel,
+  MethodologyVersion,
+} from '../config/assessmentSchema';
+import {
+  DEFAULT_METHODOLOGY_VERSION,
+  LEGACY_METHODOLOGY_VERSION,
+} from '../config/assessmentSchema';
+import type { AssessmentRecord, AssessmentResponse } from '../utils/serialization';
 import { validateAndParseImport } from '../utils/serialization';
 
-export interface AssessmentResponse {
-  score: number; // 1-5 scale (0 indicates unassessed in legacy data)
-  notes: string;
-}
+export type { AssessmentResponse };
 
 export interface ReviewState {
-  // Current active review fields (consumed directly by existing views)
+  // Current active review fields (consumed directly by views)
   activeAssessmentId: string;
   systemOverview: SystemOverview;
   assessments: Record<string, Record<string, AssessmentResponse>>;
@@ -22,15 +29,27 @@ export interface ReviewState {
 
   // Actions
   updateSystemOverview: (field: keyof SystemOverview, value: string) => void;
-  updateAssessment: (categoryId: string, questionId: string, score: number, notes: string) => void;
+  updateAssessment: (
+    categoryId: string,
+    questionId: string,
+    score: number,
+    notes: string,
+    evidence?: {
+      evidenceType?: EvidenceType;
+      evidenceSource?: string;
+      assumptions?: string;
+      confidence?: ConfidenceLevel;
+    }
+  ) => void;
   updateDecision: (recommendation: DecisionRecommendation, rationale: string) => void;
 
   // Multi-assessment management
-  createNewAssessment: (name?: string) => string;
+  createNewAssessment: (name?: string, methodologyVersion?: MethodologyVersion) => string;
   loadAssessment: (id: string) => boolean;
   saveCurrentAssessment: (name?: string) => void;
   deleteAssessment: (id: string) => void;
   duplicateAssessment: (id: string) => string;
+  upgradeAssessmentMethodology: (id?: string) => void;
 
   // Reset and import
   clearCurrentReview: () => void;
@@ -58,11 +77,16 @@ function generateId(prefix: string = 'review'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
-export function createDefaultRecord(id: string = generateId(), name?: string): AssessmentRecord {
+export function createDefaultRecord(
+  id: string = generateId(),
+  name?: string,
+  methodologyVersion: MethodologyVersion = DEFAULT_METHODOLOGY_VERSION
+): AssessmentRecord {
   const timestamp = new Date().toISOString();
   return {
     id,
     name: name?.trim() || 'Untitled Assessment',
+    methodologyVersion,
     createdAt: timestamp,
     updatedAt: timestamp,
     systemOverview: {
@@ -76,7 +100,7 @@ export function createDefaultRecord(id: string = generateId(), name?: string): A
 }
 
 /**
- * Migrates legacy unversioned state into the version 1 multi-assessment model.
+ * Migrates legacy unversioned state into the multi-assessment model.
  */
 export function migrateLegacyState(persisted: unknown): Partial<ReviewState> {
   if (typeof persisted !== 'object' || persisted === null) {
@@ -100,8 +124,17 @@ export function migrateLegacyState(persisted: unknown): Partial<ReviewState> {
     typeof p.activeAssessmentId === 'string'
   ) {
     const saved = p.savedAssessments as Record<string, AssessmentRecord>;
+    const normalizedSaved: Record<string, AssessmentRecord> = {};
+
+    for (const [id, rec] of Object.entries(saved)) {
+      normalizedSaved[id] = {
+        ...rec,
+        methodologyVersion: rec.methodologyVersion || LEGACY_METHODOLOGY_VERSION,
+      };
+    }
+
     const activeId = p.activeAssessmentId;
-    const activeRecord = saved[activeId] || Object.values(saved)[0] || createDefaultRecord();
+    const activeRecord = normalizedSaved[activeId] || Object.values(normalizedSaved)[0] || createDefaultRecord();
 
     return {
       activeAssessmentId: activeRecord.id,
@@ -109,11 +142,11 @@ export function migrateLegacyState(persisted: unknown): Partial<ReviewState> {
       assessments: activeRecord.assessments,
       decisionRecommendation: activeRecord.decisionRecommendation,
       decisionRationale: activeRecord.decisionRationale,
-      savedAssessments: saved,
+      savedAssessments: normalizedSaved,
     };
   }
 
-  // Legacy unversioned migration: wrap active state into a single named assessment
+  // Legacy unversioned migration: wrap active state into a single named assessment (Methodology V1)
   const legacyId = 'default-assessment';
   const legacySystemOverview: SystemOverview = (p.systemOverview as SystemOverview) || {
     ...initialSystemOverview,
@@ -129,6 +162,7 @@ export function migrateLegacyState(persisted: unknown): Partial<ReviewState> {
   const record: AssessmentRecord = {
     id: legacyId,
     name: assessmentName,
+    methodologyVersion: LEGACY_METHODOLOGY_VERSION,
     createdAt: timestamp,
     updatedAt: timestamp,
     systemOverview: legacySystemOverview,
@@ -185,14 +219,25 @@ export const useReviewStore = create<ReviewState>()(
         });
       },
 
-      updateAssessment: (categoryId, questionId, score, notes) => {
+      updateAssessment: (categoryId, questionId, score, notes, evidence) => {
         set((state) => {
           const categoryAssessments = state.assessments[categoryId] || {};
+          const existingResponse = categoryAssessments[questionId];
+
+          const updatedResponse: AssessmentResponse = {
+            score,
+            notes,
+            evidenceType: evidence?.evidenceType ?? existingResponse?.evidenceType,
+            evidenceSource: evidence?.evidenceSource ?? existingResponse?.evidenceSource,
+            assumptions: evidence?.assumptions ?? existingResponse?.assumptions,
+            confidence: evidence?.confidence ?? existingResponse?.confidence,
+          };
+
           const updatedAssessments = {
             ...state.assessments,
             [categoryId]: {
               ...categoryAssessments,
-              [questionId]: { score, notes },
+              [questionId]: updatedResponse,
             },
           };
 
@@ -234,8 +279,8 @@ export const useReviewStore = create<ReviewState>()(
         });
       },
 
-      createNewAssessment: (name?: string) => {
-        const newRecord = createDefaultRecord(generateId(), name);
+      createNewAssessment: (name?: string, methodologyVersion: MethodologyVersion = DEFAULT_METHODOLOGY_VERSION) => {
+        const newRecord = createDefaultRecord(generateId(), name, methodologyVersion);
         set((state) => ({
           activeAssessmentId: newRecord.id,
           systemOverview: newRecord.systemOverview,
@@ -268,7 +313,8 @@ export const useReviewStore = create<ReviewState>()(
       saveCurrentAssessment: (name?: string) => {
         set((state) => {
           const currentRecord = state.savedAssessments[state.activeAssessmentId];
-          const updatedName = name?.trim() || currentRecord?.name || state.systemOverview.systemName || 'Untitled Assessment';
+          const updatedName =
+            name?.trim() || currentRecord?.name || state.systemOverview.systemName || 'Untitled Assessment';
           const updatedRecord: AssessmentRecord = {
             ...(currentRecord || createDefaultRecord(state.activeAssessmentId)),
             name: updatedName,
@@ -353,6 +399,27 @@ export const useReviewStore = create<ReviewState>()(
         return newId;
       },
 
+      upgradeAssessmentMethodology: (id?: string) => {
+        set((state) => {
+          const targetId = id || state.activeAssessmentId;
+          const currentRecord = state.savedAssessments[targetId];
+          if (!currentRecord) return state;
+
+          const updatedRecord: AssessmentRecord = {
+            ...currentRecord,
+            methodologyVersion: DEFAULT_METHODOLOGY_VERSION,
+            updatedAt: new Date().toISOString(),
+          };
+
+          return {
+            savedAssessments: {
+              ...state.savedAssessments,
+              [targetId]: updatedRecord,
+            },
+          };
+        });
+      },
+
       clearCurrentReview: () => {
         set((state) => {
           const current = state.savedAssessments[state.activeAssessmentId];
@@ -363,6 +430,7 @@ export const useReviewStore = create<ReviewState>()(
           const resetRecord: AssessmentRecord = {
             id: state.activeAssessmentId,
             name: current?.name || 'Untitled Assessment',
+            methodologyVersion: current?.methodologyVersion || DEFAULT_METHODOLOGY_VERSION,
             createdAt: current?.createdAt || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             systemOverview: resetOverview,
@@ -405,24 +473,41 @@ export const useReviewStore = create<ReviewState>()(
           return { success: false, error: parseResult.error };
         }
 
-        const importedRecords = parseResult.assessments;
+        const existingAssessments = get().savedAssessments;
+        const existingIds = new Set(Object.keys(existingAssessments));
+
         const newMap: Record<string, AssessmentRecord> = {};
-        for (const r of importedRecords) {
-          newMap[r.id] = r;
+        const safeRecords: AssessmentRecord[] = [];
+
+        // Safe Collision Policy: If an imported assessment ID already exists, import as a new copy with fresh ID
+        for (const record of parseResult.assessments) {
+          let targetId = record.id;
+          let targetName = record.name;
+
+          if (existingIds.has(targetId)) {
+            targetId = generateId('imported');
+            targetName = `${record.name} (Imported)`;
+          }
+
+          const safeRecord: AssessmentRecord = {
+            ...record,
+            id: targetId,
+            name: targetName,
+          };
+
+          newMap[targetId] = safeRecord;
+          safeRecords.push(safeRecord);
+          existingIds.add(targetId);
         }
 
-        const targetActiveId = parseResult.activeAssessmentId && newMap[parseResult.activeAssessmentId]
-          ? parseResult.activeAssessmentId
-          : importedRecords[0].id;
-
-        const targetRecord = newMap[targetActiveId];
+        const targetRecord = safeRecords[0];
 
         set((state) => ({
           savedAssessments: {
             ...state.savedAssessments,
             ...newMap,
           },
-          activeAssessmentId: targetActiveId,
+          activeAssessmentId: targetRecord.id,
           systemOverview: { ...targetRecord.systemOverview },
           assessments: JSON.parse(JSON.stringify(targetRecord.assessments)),
           decisionRecommendation: targetRecord.decisionRecommendation,
